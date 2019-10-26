@@ -27,7 +27,8 @@ RUN apt-get update \
     && apt-get install -y curl apt-transport-https lsb-release \
     #
     # Install purescript globally
-    && npm install -g purescript spago \
+    && npm install -g purescript-installer spago \
+    && install-purescript \
     #
     # [Optional] Update a non-root user to match UID/GID - see https://aka.ms/vscode-remote/containers/non-root-user.
     && if [ "$USER_GID" != "1000" ]; then groupmod node --gid $USER_GID; fi \
