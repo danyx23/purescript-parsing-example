@@ -3,7 +3,7 @@
 # Licensed under the MIT License. See https://go.microsoft.com/fwlink/?linkid=2090316 for license information.
 #-------------------------------------------------------------------------------------------------------------
 
-FROM node:lts
+FROM node:lts-buster
 
 # Avoid warnings by switching to noninteractive
 ENV DEBIAN_FRONTEND=noninteractive
@@ -17,7 +17,7 @@ ARG USER_GID=$USER_UID
 
 # Configure apt and install packages
 RUN apt-get update \
-    && apt-get -y install --no-install-recommends apt-utils dialog 2>&1 \
+    && apt-get -y install --no-install-recommends apt-utils libtinfo5 dialog 2>&1 \
     #
     # Verify git and needed tools are installed
     && apt-get -y install git iproute2 procps \
@@ -27,8 +27,7 @@ RUN apt-get update \
     && apt-get install -y curl apt-transport-https lsb-release \
     #
     # Install purescript globally
-    && npm install -g purescript-installer spago \
-    && install-purescript \
+    && npm install -g --unsafe-perm spago purescript \
     #
     # [Optional] Update a non-root user to match UID/GID - see https://aka.ms/vscode-remote/containers/non-root-user.
     && if [ "$USER_GID" != "1000" ]; then groupmod node --gid $USER_GID; fi \
