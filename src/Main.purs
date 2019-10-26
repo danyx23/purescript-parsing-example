@@ -8,6 +8,8 @@ import Effect.Console (log)
 import Text.Parsing.Parser (Parser, runParser)
 import Text.Parsing.Parser.Language (emptyDef)
 import Text.Parsing.Parser.Token (TokenParser, makeTokenParser)
+import Record.Format (format)
+import Data.Symbol (SProxy(..))
 
 simpleArithmeticTokenParser :: TokenParser
 simpleArithmeticTokenParser = makeTokenParser emptyDef
@@ -23,6 +25,8 @@ main = do
   let parseResult = runParser testValue simpleArithmeticParser
   case parseResult of
     Right parsed -> do
-      log "Parsed a number!"
+      log $ format
+            (SProxy :: SProxy "Successfully parsed the number: {number}")
+            {number : parsed}
     Left err -> do
       log "Could not parse..."
