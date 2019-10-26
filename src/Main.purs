@@ -5,20 +5,50 @@ import Prelude hiding (between,when)
 import Data.Either (Either(..))
 import Effect (Effect)
 import Effect.Console (log)
-import Text.Parsing.Parser (Parser, runParser)
+import Text.Parsing.Parser (Parser, runParser, parseErrorMessage )
 import Text.Parsing.Parser.Language (emptyDef)
 import Text.Parsing.Parser.Token (TokenParser, makeTokenParser)
+import Text.Parsing.Parser.String (char, eof)
+import Text.Parsing.Parser.Combinators (choice, try)
 import Record.Format (format)
 import Data.Symbol (SProxy(..))
+import Control.Lazy (defer)
 
-simpleArithmeticTokenParser :: TokenParser
-simpleArithmeticTokenParser = makeTokenParser emptyDef
+
+tokenParser :: TokenParser
+tokenParser = makeTokenParser emptyDef
+
+data SimpleArithmeticExpression
+  = IntValue Int
+  | Addition SimpleArithmeticExpression SimpleArithmeticExpression
+
+instance showSimpleArithmetic :: Show SimpleArithmeticExpression where
+  show (IntValue x) = show x
+  show (Addition left right) = show left <> " + " <> show right
 
 testValue :: String
-testValue = "100"
+testValue = "((100 + 23 ) + 5)"
 
-simpleArithmeticParser :: Parser String Int
-simpleArithmeticParser = simpleArithmeticTokenParser.integer
+intValueParser :: Parser String SimpleArithmeticExpression
+intValueParser =
+  IntValue <$> tokenParser.integer
+
+additionParser :: Parser String SimpleArithmeticExpression
+additionParser = do
+    left <- defer (\ _ -> simpleArithmeticParser)
+    op <- (char '+')
+    right <- defer (\ _ -> simpleArithmeticParser)
+    pure (Addition left right)
+
+simpleArithmeticParser :: Parser String SimpleArithmeticExpression
+simpleArithmeticParser =
+  choice
+    [ try $ tokenParser.parens $ defer (\ _ -> additionParser)
+    , intValueParser
+    ]
+  <* eof
+
+
 
 main :: Effect Unit
 main = do
@@ -26,7 +56,7 @@ main = do
   case parseResult of
     Right parsed -> do
       log $ format
-            (SProxy :: SProxy "Successfully parsed the number: {number}")
-            {number : parsed}
+            (SProxy :: SProxy "Successfully parsed the expression: {expression}")
+            {expression : parsed}
     Left err -> do
-      log "Could not parse..."
+      log $ "Could not parse input - " <> (parseErrorMessage err)
