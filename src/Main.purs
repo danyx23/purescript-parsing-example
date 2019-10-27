@@ -2,19 +2,18 @@ module Main where
 
 import Prelude hiding (between,when)
 
-import Control.Lazy (defer)
 import Data.Either (Either(..))
-import Data.List (List(..), many)
+import Data.List (List(..), many, concat)
 import Data.Symbol (SProxy(..))
 import Effect (Effect)
 import Effect.Console (log)
 import Record.Format (format)
 import Text.Parsing.Parser (Parser, runParser, parseErrorMessage)
-import Text.Parsing.Parser.Combinators (choice, try)
+import Text.Parsing.Parser.Combinators (choice)
 import Text.Parsing.Parser.Language (emptyDef)
-import Text.Parsing.Parser.String (char, eof, string, whiteSpace)
+import Text.Parsing.Parser.String (eof, string, whiteSpace)
 import Text.Parsing.Parser.Token (TokenParser, makeTokenParser)
-
+import Data.Unfoldable (replicate)
 
 tokenParser :: TokenParser
 tokenParser = makeTokenParser emptyDef
@@ -25,6 +24,10 @@ data Move
   | MoveLeft
   | MoveRight
 
+data Expression
+  = SingleMove Move
+  | Repeat Int (List Move)
+
 type Position = { x :: Int, y :: Int}
 
 instance showMove :: Show Move where
@@ -33,8 +36,18 @@ instance showMove :: Show Move where
   show MoveLeft = "left"
   show MoveRight = "right"
 
+instance showExpression :: Show Expression where
+  show (SingleMove move) = show move
+  show (Repeat count moves) =
+    format
+      (SProxy :: SProxy "repeat {count} [{moves}]")
+      {count : count, moves : moves}
+
 testValue :: String
-testValue = " left left up"
+testValue = """
+repeat 3 [ left up ]
+up
+"""
 
 moveLiteralParser :: String -> Move -> Parser String Move
 moveLiteralParser literal moveValue = do
@@ -50,28 +63,48 @@ singleMoveParser =
     , moveLiteralParser "right" MoveRight
     ]
 
-simpleMoveParser :: Parser String (List Move)
-simpleMoveParser = do
+repeatParser :: Parser String Expression
+repeatParser = do
+  _ <- tokenParser.lexeme (string "repeat")
+  repeatCount <- tokenParser.integer
+  moves <- tokenParser.brackets (many singleMoveParser)
+  pure (Repeat repeatCount moves)
+
+moveExpressionParser :: Parser String Expression
+moveExpressionParser =
+  choice
+    [ repeatParser
+    , map SingleMove singleMoveParser ]
+
+moveProgramParser :: Parser String (List Expression)
+moveProgramParser = do
   _ <- whiteSpace
-  moves <- many singleMoveParser
+  moves <- many moveExpressionParser
   _ <- eof
   pure moves
 
-interpretMoves :: List Move -> Position -> Position
+interpretMoves :: List Expression -> Position -> Position
 interpretMoves Nil pos = pos
-interpretMoves (Cons MoveUp tail)    pos = interpretMoves tail {x: pos.x,   y: pos.y-1}
-interpretMoves (Cons MoveDown tail)  pos = interpretMoves tail {x: pos.x,   y: pos.y+1}
-interpretMoves (Cons MoveLeft tail)  pos = interpretMoves tail {x: pos.x-1, y: pos.y}
-interpretMoves (Cons MoveRight tail) pos = interpretMoves tail {x: pos.x+1, y: pos.y}
+interpretMoves (Cons (SingleMove MoveUp) tail)    pos = interpretMoves tail {x: pos.x,   y: pos.y-1}
+interpretMoves (Cons (SingleMove MoveDown) tail)  pos = interpretMoves tail {x: pos.x,   y: pos.y+1}
+interpretMoves (Cons (SingleMove MoveLeft) tail)  pos = interpretMoves tail {x: pos.x-1, y: pos.y}
+interpretMoves (Cons (SingleMove MoveRight) tail) pos = interpretMoves tail {x: pos.x+1, y: pos.y}
+interpretMoves (Cons (Repeat count moves) tail)   pos =
+  interpretMoves (repeatedMoves <> tail) pos
+  where
+    replicated = replicate count moves :: List (List Move)
+    repeatedMoves = map SingleMove (concat replicated)
+
 
 main :: Effect Unit
 main = do
-  let parseResult = runParser testValue simpleMoveParser
+  let parseResult = runParser testValue moveProgramParser
   case parseResult of
     Right parsed -> do
-      let endPosition = interpretMoves parsed {x: 0, y: 0}
-      log $ format
-            (SProxy :: SProxy "Successfully parsed the expression: {expression} - the final position is: {position}")
-            {expression : parsed, position : endPosition}
+        let endPosition = interpretMoves parsed {x: 0, y: 0}
+        let message = format
+                        (SProxy :: SProxy "Successfully parsed the expression: {expression} - the final position is: {position}")
+                        {expression : parsed, position : endPosition}
+        log message
     Left err -> do
       log $ "Could not parse input - " <> (parseErrorMessage err)
