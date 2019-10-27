@@ -8,55 +8,60 @@ import Effect.Console (log)
 import Text.Parsing.Parser (Parser, runParser, parseErrorMessage )
 import Text.Parsing.Parser.Language (emptyDef)
 import Text.Parsing.Parser.Token (TokenParser, makeTokenParser)
-import Text.Parsing.Parser.String (char, eof)
+import Text.Parsing.Parser.String (char, eof, string)
 import Text.Parsing.Parser.Combinators (choice, try)
 import Record.Format (format)
 import Data.Symbol (SProxy(..))
 import Control.Lazy (defer)
+import Data.List (List(..), many)
 
 
 tokenParser :: TokenParser
 tokenParser = makeTokenParser emptyDef
 
-data SimpleArithmeticExpression
-  = IntValue Int
-  | Addition SimpleArithmeticExpression SimpleArithmeticExpression
+data Move
+  = MoveUp
+  | MoveDown
+  | MoveLeft
+  | MoveRight
 
-instance showSimpleArithmetic :: Show SimpleArithmeticExpression where
-  show (IntValue x) = show x
-  show (Addition left right) = show left <> " + " <> show right
+type Position = { x :: Int, y :: Int}
+
+instance showMove :: Show Move where
+  show MoveUp = "up"
+  show MoveDown = "down"
+  show MoveLeft = "left"
+  show MoveRight = "right"
 
 testValue :: String
-testValue = "((100 + 23 ) + 5)"
+testValue = "left left up"
 
-intValueParser :: Parser String SimpleArithmeticExpression
-intValueParser =
-  IntValue <$> tokenParser.integer
-
-additionParser :: Parser String SimpleArithmeticExpression
-additionParser = do
-    left <- defer (\ _ -> simpleArithmeticParser)
-    op <- (char '+')
-    right <- defer (\ _ -> simpleArithmeticParser)
-    pure (Addition left right)
-
-simpleArithmeticParser :: Parser String SimpleArithmeticExpression
-simpleArithmeticParser =
-  choice
-    [ try $ tokenParser.parens $ defer (\ _ -> additionParser)
-    , intValueParser
-    ]
+simpleMoveParser :: Parser String (List Move)
+simpleMoveParser =
+  (many $ choice
+    [ do matchedString <- tokenParser.lexeme (string "up")
+         pure MoveUp
+    , (\ _ -> MoveDown) <$> tokenParser.lexeme (string "down")
+    , (\ _ -> MoveLeft) <$> tokenParser.lexeme (string "left")
+    , (\ _ -> MoveRight) <$> tokenParser.lexeme (string "right")
+    ])
   <* eof
 
-
+interpretMoves :: List Move -> Position -> Position
+interpretMoves Nil pos = pos
+interpretMoves (Cons MoveUp tail)    pos = interpretMoves tail {x: pos.x,   y: pos.y-1}
+interpretMoves (Cons MoveDown tail)  pos = interpretMoves tail {x: pos.x,   y: pos.y+1}
+interpretMoves (Cons MoveLeft tail)  pos = interpretMoves tail {x: pos.x-1, y: pos.y}
+interpretMoves (Cons MoveRight tail) pos = interpretMoves tail {x: pos.x+1, y: pos.y}
 
 main :: Effect Unit
 main = do
-  let parseResult = runParser testValue simpleArithmeticParser
+  let parseResult = runParser testValue simpleMoveParser
   case parseResult of
     Right parsed -> do
+      let endPosition = interpretMoves parsed {x: 0, y: 0}
       log $ format
-            (SProxy :: SProxy "Successfully parsed the expression: {expression}")
-            {expression : parsed}
+            (SProxy :: SProxy "Successfully parsed the expression: {expression} - the final position is: {position}")
+            {expression : parsed, position : endPosition}
     Left err -> do
       log $ "Could not parse input - " <> (parseErrorMessage err)
