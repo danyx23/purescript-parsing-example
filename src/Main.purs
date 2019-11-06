@@ -46,7 +46,7 @@ instance showExpression :: Show Expression where
 
 testValue :: String
 testValue = """
-repeat 1 [ repeat 2 [ repeat 3 [ repeat 4 [ down ]]]]
+up repeat 2 [ left repeat 2 [ up ] ]
 """
 
 moveLiteralParser :: String -> Move -> Parser String Move
