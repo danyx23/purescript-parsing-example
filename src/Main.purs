@@ -14,6 +14,7 @@ import Text.Parsing.Parser.Language (emptyDef)
 import Text.Parsing.Parser.String (eof, string, whiteSpace)
 import Text.Parsing.Parser.Token (TokenParser, makeTokenParser)
 import Data.Unfoldable (replicate)
+import Control.Lazy (fix)
 
 tokenParser :: TokenParser
 tokenParser = makeTokenParser emptyDef
@@ -26,7 +27,7 @@ data Move
 
 data Expression
   = SingleMove Move
-  | Repeat Int (List Move)
+  | Repeat Int (List Expression)
 
 type Position = { x :: Int, y :: Int}
 
@@ -45,8 +46,7 @@ instance showExpression :: Show Expression where
 
 testValue :: String
 testValue = """
-repeat 3 [ left up ]
-up
+repeat 1 [ repeat 2 [ repeat 3 [ repeat 4 [ down ]]]]
 """
 
 moveLiteralParser :: String -> Move -> Parser String Move
@@ -67,14 +67,15 @@ repeatParser :: Parser String Expression
 repeatParser = do
   _ <- tokenParser.lexeme (string "repeat")
   repeatCount <- tokenParser.integer
-  moves <- tokenParser.brackets (many singleMoveParser)
+  moves <- tokenParser.brackets (many moveExpressionParser)
   pure (Repeat repeatCount moves)
 
 moveExpressionParser :: Parser String Expression
 moveExpressionParser =
-  choice
-    [ repeatParser
-    , map SingleMove singleMoveParser ]
+    fix \_ -> -- use fix to make this parser lazy so that the recursion is accepted by the compiler
+        choice
+        [ repeatParser
+        , map SingleMove singleMoveParser ]
 
 moveProgramParser :: Parser String (List Expression)
 moveProgramParser = do
@@ -83,17 +84,21 @@ moveProgramParser = do
   _ <- eof
   pure moves
 
-interpretMoves :: List Expression -> Position -> Position
+simplifyExpressionToMoves :: Expression -> List Move
+simplifyExpressionToMoves (SingleMove move) = Cons move Nil
+simplifyExpressionToMoves (Repeat count nested) =
+    bind nested simplifyExpressionToMoves
+    # replicate count
+    # concat
+
+
+interpretMoves :: List Move -> Position -> Position
 interpretMoves Nil pos = pos
-interpretMoves (Cons (SingleMove MoveUp) tail)    pos = interpretMoves tail {x: pos.x,   y: pos.y-1}
-interpretMoves (Cons (SingleMove MoveDown) tail)  pos = interpretMoves tail {x: pos.x,   y: pos.y+1}
-interpretMoves (Cons (SingleMove MoveLeft) tail)  pos = interpretMoves tail {x: pos.x-1, y: pos.y}
-interpretMoves (Cons (SingleMove MoveRight) tail) pos = interpretMoves tail {x: pos.x+1, y: pos.y}
-interpretMoves (Cons (Repeat count moves) tail)   pos =
-  interpretMoves (repeatedMoves <> tail) pos
-  where
-    replicated = replicate count moves :: List (List Move)
-    repeatedMoves = map SingleMove (concat replicated)
+interpretMoves (Cons (MoveUp) tail)    pos = interpretMoves tail {x: pos.x,   y: pos.y-1}
+interpretMoves (Cons (MoveDown) tail)  pos = interpretMoves tail {x: pos.x,   y: pos.y+1}
+interpretMoves (Cons (MoveLeft) tail)  pos = interpretMoves tail {x: pos.x-1, y: pos.y}
+interpretMoves (Cons (MoveRight) tail) pos = interpretMoves tail {x: pos.x+1, y: pos.y}
+
 
 
 main :: Effect Unit
@@ -101,7 +106,8 @@ main = do
   let parseResult = runParser testValue moveProgramParser
   case parseResult of
     Right parsed -> do
-        let endPosition = interpretMoves parsed {x: 0, y: 0}
+        let moves = bind parsed simplifyExpressionToMoves
+        let endPosition = interpretMoves moves {x: 0, y: 0}
         let message = format
                         (SProxy :: SProxy "Successfully parsed the expression: {expression} - the final position is: {position}")
                         {expression : parsed, position : endPosition}
